@@ -1,0 +1,978 @@
+/****************************************************************************************************
+ File Name:  Slave_side
+ Author:     Carlos Guillen
+ Date:       Nov 23 , 2019
+ Modified:   None
+                
+ Desc:      This code controls the slave arduino where we have most of our sensors, all our LEDs and our motors, 
+*****************************************************************************************************/
+//#include <Stepper.h>
+#include <SPI.h> //RFID
+#include <MFRC522.h> //RFID
+#include <dht.h> // Humidity sensor
+ 
+#define SS_PIN 53//RFID
+#define RST_PIN 5//RFID
+
+#define Enable 8 //HVAC Motor enable pin
+#define in1 6 //HVAC Motor
+#define in2 7 //HVAC Motor
+
+#define STEP_IN1 22 // Stepper Motor
+#define STEP_IN2 23 // Stepper Motor
+#define STEP_IN3 24 // Stepper Motor
+#define STEP_IN4 25 // Stepper Motor
+
+/////////////////////////
+// HUMIDITY SENSOR
+dht DHT;
+#define DHT11_PIN A2
+float humidityThreshold = 40;
+////////////////////////EO HUMIDITY SENSOR
+
+//////////////////// Beginning gas sensor
+#define ALARM HIGH
+#define SAFE  HIGH
+#define OFF LOW
+#define ON HIGH
+
+int  gasLevelAlarm = 2; // Alert LED
+int safeLevel = 3; // Green LED
+int BuzzerAlarm = 4; // Buzzer
+int gasSensor = A0; //The gas sensor we are using to detect the gas is the MQ-2
+// Your threshold value
+int gasLevel = 500; // This is the limit we have set to simulate gas warning levels
+
+/////////////////// EO gas sensor
+
+///////////////////
+// PIR SENSOR
+int PIRPin = 10;               // choose the input pin (for PIR sensor)
+int pirState = LOW;             // we start, assuming no motion detected
+int PIRval = 0;                    // variable for reading the pin status
+/////////////////// EO PIR sensor
+
+///////////////////
+// WATER SENSOR
+int waterPin = A1; //Pin to read data
+int waterLevel; //Variable to store data
+int Waterled = 11;
+/////////////////// EO WATER sensor
+
+////////////////////
+//RFID 
+MFRC522 mfrc522(SS_PIN, RST_PIN);   // Create MFRC522 instance.               This block of code is connecting the motor driver to the arduino to run the motor. The motor driver 
+int RFIDGreen = 26; //The pin the green LED is connected                         has a voltage source range from 5V-12V; the motor needs to be supplied 5V. 
+int RFIDRed = 27;
+int count = 0;
+/////////////////// EO RFID
+
+int kitchenState = 0;
+int masterBed2State = 0;
+int bathroomState = 0;
+int livingRmState = 0;
+int GuestRmState = 0;
+int bathroom2State = 0;
+int studioState = 0;
+int garageState = 0;
+int basementState = 0;
+int masterBedState = 0;
+int garage2State = 0;
+int room1State = 0;
+int hallwayState = 0;
+int hallway2State = 0;
+int backyard1State = 0;
+int backyard2State = 0;
+int rightOut1State = 0;
+int rightOut2State = 0;
+int leftOut1State = 0;
+int leftOut2State = 0;
+int gateState = 1; // Garage door
+
+int RX_en = 12; //This pin will be used to enable the RX terminal in the MAX285 chip
+int kitchen = 31;
+int masterBed2 = 36;
+int bathroom = 35;
+int livingRm = 34;
+int GuestRm = 49;
+int bathroom2 = 48;
+int studio = 47;
+int garage = 46;
+int basement = 45;
+int masterBed = 44;
+int garage2 = 43;
+int room1 = 42;
+int hallway = 41;
+int hallway2 = 40;
+int backyard1 = 39;
+int backyard2 = 38;
+int rightOut1 = 33;
+int rightOut2 = 32;
+int leftOut1 = 37;
+int leftOut2 = 30;
+
+int currentIn = 0;// Stepper current pin
+const int stepsPerRevolution = 100;
+int motorState = 1; // Variable used to check if the motor is running or not
+int buttonState = 0; // Checks the state of the stop button
+int buttonState2 = 0;  // Checks the state of the start button
+int dir = 0; // Checks the direction the motor is running
+
+//Stepper stepper(stepsPerRevolution, 9, 10, 11, 12);
+
+void setup() 
+{
+  Serial.begin(9800); // Initialize serial communication with 9800 baud rate for the serial monitor
+  Serial1.begin(4800); // Initialize serial communication to communiacte with the master aruino
+  //RFID SENSOR
+  SPI.begin(); // Initiate  SPI bus for RFID
+  mfrc522.PCD_Init();   // Initiate MFRC522 for RFID
+  Serial.println("Hello, Please scan card");
+  Serial.println();
+  pinMode(RFIDGreen, OUTPUT); // Green lED turn on when correct key fob is scanned.
+  pinMode(RFIDRed, OUTPUT);  //  Red LED turn on when failed to scan appropriate kay fob. 
+  //EO RFID SENSOR
+  
+  //PIR SENSOR
+  pinMode(PIRPin, INPUT);     // declare sensor as input
+  //EO PIR SENSOR
+  
+  // GAS SENSOR
+  pinMode(gasLevelAlarm, OUTPUT); //When gasSensor goes over the gasLevel limit it will lit up a red LED
+  pinMode(safeLevel, OUTPUT);     //When gasSensor is below the gasLevel limit the green LED will lit, indicating the gas level is safe 
+  pinMode(BuzzerAlarm, OUTPUT);      // A buzzer will sound the alarm tone when the gasSensor is over the gasLevel
+  pinMode(gasSensor, INPUT);
+  //EO GAS SENSOR
+  
+  // Water Sensor
+  pinMode(Waterled, OUTPUT);
+  //Water Sensor
+  
+  pinMode(Enable, OUTPUT); // Enable pin on the L298N to setup the speed the motor runs
+  pinMode(in1, OUTPUT); // IN1 pin in the L298N 
+  pinMode(in2, OUTPUT);// IN2 pin in the L298N
+  pinMode(STEP_IN1, OUTPUT);
+  pinMode(STEP_IN2, OUTPUT);
+  pinMode(STEP_IN3, OUTPUT);
+  pinMode(STEP_IN4, OUTPUT);
+//  stepper.setSpeed(200);
+  pinMode(RX_en, OUTPUT); // set pin 10 as an output
+  digitalWrite(RX_en, LOW); // set pin 10 as a low state for second MAX485 to be enabled as an RX
+
+  pinMode(kitchen, OUTPUT);
+  digitalWrite(kitchen, LOW);
+  pinMode(masterBed2, OUTPUT);
+  digitalWrite(masterBed2, LOW);
+  pinMode(bathroom,OUTPUT);
+  digitalWrite(bathroom, LOW);
+  pinMode(livingRm, OUTPUT);
+  digitalWrite(livingRm, LOW);
+  pinMode(GuestRm, OUTPUT);
+  digitalWrite(GuestRm, LOW);
+  pinMode(bathroom2, OUTPUT);
+  digitalWrite(bathroom2, LOW);
+  pinMode(studio, OUTPUT);
+  digitalWrite(studio, LOW);
+  pinMode(garage, OUTPUT);
+  digitalWrite(garage, LOW);
+  pinMode(basement, OUTPUT);
+  digitalWrite(basement, LOW);
+  pinMode(masterBed, OUTPUT);
+  digitalWrite(masterBed, LOW);
+  pinMode(garage2, OUTPUT);
+  digitalWrite(garage2, LOW);
+  pinMode(room1, OUTPUT);
+  digitalWrite(room1, LOW);
+  pinMode(hallway, OUTPUT);
+  digitalWrite(hallway, LOW);
+  pinMode(hallway2, OUTPUT);
+  digitalWrite(hallway2, LOW);
+  pinMode(backyard1, OUTPUT);
+  digitalWrite(backyard1, LOW);
+  pinMode(backyard2, OUTPUT);
+  digitalWrite(backyard2, LOW);
+  pinMode(rightOut1, OUTPUT);
+  digitalWrite(rightOut1, LOW);
+  pinMode(rightOut2, OUTPUT);
+  digitalWrite(rightOut2, LOW);
+  pinMode(leftOut1, OUTPUT);
+  digitalWrite(leftOut1, LOW);
+  pinMode(leftOut2, OUTPUT);
+  digitalWrite(leftOut2, LOW);
+}
+void loop() 
+{
+  GasSensorCall(); //gas sensor function call
+  PIRsensorCall();// PIR sensor function call
+  WatersensorCall(); // Water sensor function call
+  RFIDsensorCall(); // RFID sensor function call
+  HumiditySensorCall(); //Humidity sensro function call
+/****************************************************************************************************
+Function Name:  Serial Communication
+ Author:     Pramoth Thangavel
+ Retrieved From: https://circuitdigest.com/microcontroller-projects/rs485-serial-communication-between-arduino-uno-and-arduino-nano
+ Date:       11/17/2019
+ Modified:   Carlos Guillen
+                
+ Desc:      This function controls the 12VDC motor to start, stop and change direction 
+*****************************************************************************************************/
+  while(Serial1.available() > 0) // loop will run everytime it detects data incoming
+  {
+        char incomingCharacter = Serial1.read(); // The data incoming is assigned to a variable
+        Serial1.println(incomingCharacter); // The data received is printed in the serial monittor to check it was correctly received
+/****************************************************************************************************
+Function Name:  H-bridge
+ Author:     Dejan Nedelkovski
+ Retrieved From: https://howtomechatronics.com/tutorials/arduino/arduino-dc-motor-control-tutorial-l298n-pwm-h-bridge/
+ Date:       11/20/2019
+ Modified:   Carlos Guillen
+                
+ Desc:      This function controls the 12VDC motor to start, stop and change direction 
+*****************************************************************************************************/
+     if (dir == 0) // Checks the direction the motor is running
+     {
+
+        if (motorState == 0) // Checks if the motor is running to stop it
+        {
+            if(incomingCharacter == '-') // switch statement to handle the received dat
+            {
+                int pwmSignal = map(0, 0, 1023, 0 , 255); // Map the motor velocity from 0 to 255, first number specifying it will be stopped after the pushbutton is pressed
+                analogWrite(Enable, pwmSignal); // Send PWM signal to L298N enable pin to control the speed
+                motorState = 1; // Set the motor state to 1 after stopping it
+                dir = 1; // Set the direction to 1 after the pushbutton is pressed
+            }//EO if
+        }//EO if
+
+    
+        if (motorState == 1) // Checks if the motor is stopped to run it
+        {
+            if(incomingCharacter == '+') // switch statement to handle the received dat
+            {
+                int pwmSignal = map(500, 0, 1023, 0 , 255); // Map the motor velocity from 0 to 255, first number specifying it will run after the pushbutton is pressed
+                analogWrite(Enable, pwmSignal); // Send PWM signal to L298N enable pin to control the speed
+                motorState = 0; // Set the motor state to 0 after stopping it
+
+            }//EO if
+        } //EO if
+                digitalWrite(in1, HIGH); // Set IN1 pin from the motor driver to high to run the motor counter-clockwise
+                digitalWrite(in2, LOW); // Set IN2 pin from the motor driver to low to run the motor counter-clockwise
+                delay(20);
+     }//EO if
+
+
+      if (dir == 1) // Checks the direction the motor is running
+      {
+
+        if (motorState == 0) // Checks if the motor is running to stop it
+        {
+            if(incomingCharacter == '-') // switch statement to handle the received dat
+            {
+                int pwmSignal = map(0, 0, 1023, 0 , 255); // Map the motor velocity from 0 to 255, first number specifying it will be stopped after the pushbutton is pressed
+                analogWrite(Enable, pwmSignal); // Send PWM signal to L298N enable pin to control the speed
+                motorState = 1; // Set the motor state to 1 after stopping it
+                dir = 0; // Set the direction to 1 after the pushbutton is pressed
+            }//EO if
+        }//EO if
+    
+        if (motorState == 1) // Checks if the motor is stopped to run it
+        {
+            if(incomingCharacter == '+') // switch statement to handle the received dat
+            {
+                int pwmSignal = map(500, 0, 1023, 0 , 255); // Map the motor velocity from 0 to 255, first number specifying it will run after the pushbutton is pressed
+                analogWrite(Enable, pwmSignal); // Send PWM signal to L298N enable pin to control the speed
+                motorState = 0; // Set the motor state to 0 after stopping it
+            }//EO if
+        }//EO if
+                 digitalWrite(in1, LOW); // Set IN1 pin from the motor driver to high to run the motor counter-clockwise
+                digitalWrite(in2, HIGH); // Set IN2 pin from the motor driver to low to run the motor counter-clockwise
+                delay(20);
+
+   
+      }//EO IF dir
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Stepper motor function call
+switch(incomingCharacter) // switch statement to handle the received dat
+    {
+        case '1':
+        if (gateState == 0) //revises if the gate is open to close it
+        {
+          for(int a =0; a < 8192; a ++) // This is where the stepper function is called, and it makes rotate 4 times to simulate the garage door closing. One full rotation is 2048
+          {
+            StepMove(false); // false makes the motor go clockwise
+            delay(2);
+          }
+        }
+          gateState = 1;//set the gate state to 1 to stop the motor to rotate again if the same motor is pressed
+          break;
+        
+        case '2':
+        if(gateState == 1) // revises if the gate is closed open it
+        {
+          for(int a =0; a < 8192; a ++)// This is where the stepper function is called, and it makes rotate 4 times to simulate the garage door opening. One full rotation is 2048
+          {
+            StepMove(true); // true makes the motor go counter-clockwise
+            delay(2);
+          }
+        }
+          gateState = 0;// set the gate state to 0 to stop the motor to rotate again if the same motor is pressed
+          break;
+     }//EO Switch function
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// LEDs
+
+
+  if(incomingCharacter == '3') //Revises the character sent by the serial communication from the screen after pressing the button 
+ {
+    if(kitchenState == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(kitchen, HIGH);// turn led on
+    kitchenState =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(kitchen, LOW);//turn led off
+     kitchenState =0;// set the led state to 0
+     delay(500);
+    }
+ }
+ if(incomingCharacter == '4') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(masterBed2State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(masterBed2, HIGH);//turn led on
+    masterBed2State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(masterBed2, LOW);// turn led off
+     masterBed2State =0;// set the led state to 0
+     delay(500);
+    }
+ }
+   if(incomingCharacter == '5') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(bathroomState == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(bathroom, HIGH);// turn led on
+    bathroomState =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(bathroom, LOW);// turn led off
+     bathroomState =0;// set the led state to 0
+     delay(500);
+    }
+ }
+  if(incomingCharacter == '6') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(livingRmState == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(livingRm, HIGH);// turn led on
+    livingRmState =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(livingRm, LOW);// turn led off
+     livingRmState =0;
+     delay(500);
+    }
+ }
+  if(incomingCharacter == '7') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(GuestRmState == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(GuestRm, HIGH);// turn led on
+    GuestRmState =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(GuestRm, LOW);// turn led off
+     GuestRmState =0;
+     delay(500);
+    }
+ }
+  if(incomingCharacter == '8') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(bathroom2State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(bathroom2, HIGH);// turn led on
+    bathroom2State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(bathroom2, LOW);// turn led off
+     bathroom2State =0;
+     delay(500);
+    }
+ }
+  if(incomingCharacter == '9') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(studioState == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(studio, HIGH);// turn led on
+    studioState =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(studio, LOW);// turn led off
+     studioState =0;
+     delay(500);
+    }
+ }
+  if(incomingCharacter == 'a') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(garageState == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(garage, HIGH);// turn led on
+    garageState =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(garage, LOW);// turn led off
+     garageState =0;
+     delay(500);
+    }
+ }
+  if(incomingCharacter == 'b') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(basementState == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(basement, HIGH);// turn led on
+    basementState =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(basement, LOW);// turn led off
+     basementState =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+   if(incomingCharacter == 'c') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(masterBedState == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(masterBed, HIGH);// turn led on
+    masterBedState =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(masterBed, LOW);// turn led off
+     masterBedState =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+   if(incomingCharacter == 'd') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(garage2State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(garage2, HIGH);// turn led on
+    garage2State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(garage2, LOW);// turn led off
+     garage2State =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+   if(incomingCharacter == 'e') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(room1State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(room1, HIGH);// turn led on
+    room1State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(room1, LOW);// turn led off
+     room1State =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+   if(incomingCharacter == 'f') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(hallwayState == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(hallway, HIGH);// turn led on
+    hallwayState =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(hallway, LOW);// turn led off
+     hallwayState =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+   if(incomingCharacter == 'g') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(hallway2State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(hallway2, HIGH);// turn led on
+    hallway2State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(hallway2, LOW);// turn led off
+     hallway2State =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+    
+ }
+    if(incomingCharacter == 'm') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(backyard1State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(backyard1, HIGH);// turn led on
+    backyard1State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(backyard1, LOW);// turn led off
+     backyard1State =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+    if(incomingCharacter == 'n') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(backyard2State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(backyard2, HIGH);// turn led on
+    backyard2State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(backyard2, LOW);// turn led off
+     backyard2State =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+    if(incomingCharacter == 'o') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(rightOut1State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(rightOut1, HIGH);// turn led on
+    rightOut1State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(rightOut1, LOW);// turn led off
+     rightOut1State =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+
+     if(incomingCharacter == 'p') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(rightOut2State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(rightOut2, HIGH);// turn led on
+    rightOut2State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(rightOut2, LOW);// turn led off
+     rightOut2State =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+
+     if(incomingCharacter == 'q') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(leftOut1State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(leftOut1, HIGH);// turn led on
+    leftOut1State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(leftOut1, LOW);// turn led off
+     leftOut1State =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+
+      if(incomingCharacter == 'r') //Revises the character sent by the serial communication from the screen after pressing the button
+ {
+    if(leftOut2State == 0)// Revises the led to be off to be able to turn it on
+    {
+    digitalWrite(leftOut2, HIGH);// turn led on
+    leftOut2State =1;// set the led state to 1 to be turn it off the next time the button is pressed
+    delay(500);
+    }
+    
+    else// Revises the led to be on to be able to turn it off
+    {
+     digitalWrite(leftOut2, LOW);// turn led off
+     leftOut2State =0;// set the led state to 0 to be turn it on the next time the button is pressed
+     delay(500);
+    }
+ }
+  
+    
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+  }// EO While Serial
+}//EO MAIN
+
+/****************************************************************************************************
+Function Name:  StepMove
+ Author:     Nikodem Bartnik 
+ Retrieved From: https://github.com/NikodemBartnik/ArduinoTutorials/blob/master/28BYJ-48/28BYJ-48.ino
+ Date:       Nov  23, 2019
+ Modified:   Carlos Guillen
+ Fanshawe College, 2019
+                
+ Desc:      This function controls the stepper motor and it makes it possible to mover the motor clockwise and counter-clockwise 
+*****************************************************************************************************/
+void StepMove(bool dir){
+    if(dir)
+    {
+    switch(currentIn){
+      case 0:
+      digitalWrite(STEP_IN1, HIGH);
+      digitalWrite(STEP_IN2, LOW);
+      digitalWrite(STEP_IN3, LOW);
+      digitalWrite(STEP_IN4, LOW);
+      break;
+      case 1:
+      digitalWrite(STEP_IN1, LOW);
+      digitalWrite(STEP_IN2, HIGH);
+      digitalWrite(STEP_IN3, LOW);
+      digitalWrite(STEP_IN4, LOW);
+      break;
+      case 2:
+      digitalWrite(STEP_IN1, LOW);
+      digitalWrite(STEP_IN2, LOW);
+      digitalWrite(STEP_IN3, HIGH);
+      digitalWrite(STEP_IN4, LOW);
+      break;
+      case 3:
+      digitalWrite(STEP_IN1, LOW);
+      digitalWrite(STEP_IN2, LOW);
+      digitalWrite(STEP_IN3, LOW);
+      digitalWrite(STEP_IN4, HIGH);
+      break;
+    } 
+      }else{
+        switch(currentIn){
+      case 0:
+      digitalWrite(STEP_IN1, LOW);
+      digitalWrite(STEP_IN2, LOW);
+      digitalWrite(STEP_IN3, LOW);
+      digitalWrite(STEP_IN4, HIGH);
+      break;
+      case 1:
+      digitalWrite(STEP_IN1, LOW);
+      digitalWrite(STEP_IN2, LOW);
+      digitalWrite(STEP_IN3, HIGH);
+      digitalWrite(STEP_IN4, LOW);
+      break;
+      case 2:
+      digitalWrite(STEP_IN1, LOW);
+      digitalWrite(STEP_IN2, HIGH);
+      digitalWrite(STEP_IN3, LOW);
+      digitalWrite(STEP_IN4, LOW);
+      break;
+      case 3:
+      digitalWrite(STEP_IN1, HIGH);
+      digitalWrite(STEP_IN2, LOW);
+      digitalWrite(STEP_IN3, LOW);
+      digitalWrite(STEP_IN4, LOW);
+     
+      
+    } 
+      }
+    currentIn++;
+      if(currentIn > 3){
+        currentIn = 0;
+      }
+    }
+// EO stepper function
+
+/****************************************************************************************************
+Function Name:  GasSensorCall
+ Author:     Aritro Mukherjee 
+ Retrieved From: https://create.arduino.cc/projecthub/Aritro/smoke-detection-using-mq-2-gas-sensor-79c54a?fbclid=IwAR0qm6eS0ySXSV7rKO_sXj4CQ9rYHjC1Jv-XuDm65Lw997sePHVE6WqrvjY
+ Date:       11/20/2019
+ Modified:   Christopher Diaz-Reyes
+                
+ Desc:      This function controls the gas sensor, when the gas sensor detects gas it flashes an indicator LED and activates a buzzer 
+*****************************************************************************************************/
+void GasSensorCall()
+{
+  int gasolineSensor = analogRead(gasSensor);
+
+  Serial.print("Pin A0: ");
+  Serial.println(gasolineSensor);
+  delay("1000");
+  
+  if (gasolineSensor < gasLevel) //This function will check if the gasSensor goes over the gasLevel
+  {
+    digitalWrite(gasLevelAlarm, OFF);
+    digitalWrite(safeLevel, SAFE);
+    noTone(BuzzerAlarm);
+    delay(1000);
+  }
+  else
+  {
+    digitalWrite(gasLevelAlarm, ALARM);
+    digitalWrite(safeLevel, OFF);
+    tone(BuzzerAlarm, 1000, 200);
+    delay(1000);
+  }
+  delay(100);
+}
+// EO GAS SENSOR FUNCTION
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// PIR SENSOR
+
+void PIRsensorCall()
+{
+  PIRval = digitalRead(PIRPin);  // read input value
+  if (PIRval == HIGH) {            // check if the input is HIGH
+    digitalWrite(backyard1, HIGH);  // turn LED ON
+    digitalWrite(backyard2, HIGH);
+    if (pirState == LOW) {
+      // we have just turned on
+      Serial.println("Motion detected!");
+      // We only want to print on the output change, not state
+      pirState = HIGH;
+      //delay(20);
+    }
+  } else {
+    digitalWrite(backyard1, LOW); // turn LED OFF
+    digitalWrite(backyard2, LOW);
+    if (pirState == HIGH){
+      // we have just turned of
+      Serial.println("Motion ended!");
+      // We only want to print on the output change, not state
+      pirState = LOW;
+      //delay(20);
+    }
+  }
+}
+// EO PIR SENSOR
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/****************************************************************************************************
+Function Name:  WaterSensorCall
+ Author:     unknown
+ Retrieved From: https://www.instructables.com/id/How-to-use-a-Water-Level-Sensor-Arduino-Tutorial/
+ Date:       Nov  23, 2019
+ Modified:   Carlos Guillen
+ Fanshawe College, 2019
+                
+ Desc:      This function controls the water sensor, when the sensor detects the water level increase it flashes an indicator LED and activates a buzzer  
+*****************************************************************************************************/
+
+void WatersensorCall()
+{
+  waterLevel = analogRead(waterPin); //Read data from analog pin
+  
+  Serial.println(waterLevel);
+  if (waterLevel<=500){ 
+    Serial.println("Current Water waterLevel: 0mm"); 
+    digitalWrite(Waterled, LOW);
+    noTone(BuzzerAlarm);
+  }
+  else
+  { 
+    Serial.println("Current Water waterLevel between 0mm and 10mm"); 
+    digitalWrite(Waterled, HIGH);
+    tone(BuzzerAlarm, 1000, 200);
+  }
+  delay(500); // Check for new value every 0.5 sec
+}
+//EO WATER SENSOR FUNCTION
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/***************************************************************************************************************************
+ * function name: RFID 
+ * Date; 11/1/2019
+ * modified: Christopher Diaz-Reyes
+ * Description: The RFID will read a key fob that has the same address inside content.substring(1). If correct key fob is read, green LED turns on and open door; but if different fob is read, program will denied acces0s and turn on red LED. Motor will turn counterclockwise to simulate opening a door, while rotating clockwise will be closeing. 
+ * All the resources for this project: https://randomnerdtutorials.com/
+ * Created by FILIPEFLOP
+ ***************************************************************************************************************************/
+
+void RFIDsensorCall()
+{
+  // Look for new cards
+  if ( ! mfrc522.PICC_IsNewCardPresent()) 
+  {
+    return;
+  }
+  // Select one of the cards
+  if ( ! mfrc522.PICC_ReadCardSerial()) 
+  {
+    return;
+  }
+  //Show UID on serial monitor
+  //Serial.print("UID tag :");
+  String content= "";
+  byte letter;
+  ///////////////////////////////////////////////////////////////////////////////////////////////////// 
+  for (byte i = 0; i < mfrc522.uid.size; i++) 
+  {
+     Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? "0" : " "); //UIDByte has an fixed array of 10. Its being called from a struck in the MFRC522.h library
+     Serial.print(mfrc522.uid.uidByte[i], HEX);
+     content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ")); //?: is an ternary operator. It's an expression where it's comparing both TRUE or FALSE statements. 
+     content.concat(String(mfrc522.uid.uidByte[i], HEX));
+  }
+  
+  Serial.println();
+  Serial.print("Message : ");
+  content.toUpperCase();
+  
+  if (content.substring(1) == "AA B3 9B 0C") //Can change the the amount of cards allowed to be saved in the aaray
+  
+  {
+    Serial.println("Authorized access\nWelcome  ");
+    Serial.println();
+    digitalWrite(RFIDGreen, HIGH);
+    digitalWrite(RFIDRed, LOW);
+    
+    // play notes 660Hz, 550Hz and 440Hz
+    tone(BuzzerAlarm, 440);
+    delay(500);
+    tone(BuzzerAlarm, 550);
+    delay(500);
+    tone(BuzzerAlarm, 660);
+    delay(500);
+    noTone(BuzzerAlarm);
+    if(gateState == 0)
+    {
+      for(int a =0; a < 8192; a ++)// This is where the stepper function is called, and it makes rotate 4 times to simulate the garage door closing. One full rotation is 2048
+      {
+      gateState = 1;
+      StepMove(false);
+      delay(2);
+      }
+    }
+    //delay(1000);
+    else
+    {
+      for(int a =0; a < 8192; a ++)// This is where the stepper function is called, and it makes rotate 4 times to simulate the garage door opening. One full rotation is 2048
+      {
+       gateState = 0;
+       StepMove(true);
+       delay(2);
+       }
+    }
+    delay(3000);
+    digitalWrite(RFIDGreen, LOW);
+    digitalWrite(RFIDRed, LOW);
+    Serial.println("Hello, Please scan card");
+    
+  }
+ 
+ if (content.substring(1) != "AA B3 9B 0C") //else   
+ {
+    count++;
+    Serial.println(" Access denied");
+    Serial.println("Please tap again");
+    digitalWrite(RFIDGreen, LOW);
+    digitalWrite(RFIDRed, HIGH);
+    delay(1000);
+    digitalWrite(RFIDGreen, LOW);
+    digitalWrite(RFIDRed,LOW);
+ }
+
+  if(count == 3)
+  {
+    digitalWrite(RFIDGreen, LOW);
+    digitalWrite(RFIDRed, HIGH);
+   
+   // play notes 660Hz, 550Hz and 440Hz
+    tone(BuzzerAlarm, 660);
+    delay(500);
+    tone(BuzzerAlarm, 550);
+    delay(500);
+    tone(BuzzerAlarm, 440);
+    delay(500);
+    noTone(BuzzerAlarm);
+   
+    Serial.println("\nTIMEOUT");
+    delay(6000);   
+    digitalWrite(RFIDGreen, LOW);
+    digitalWrite(RFIDRed, LOW);Serial.println("\nHello, Please scan card");
+    count = 0;
+  }
+}
+// EO RFID SENSOR
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/****************************************************************************************************
+Function Name:  HumiditySensorCall
+ Author:    Circuit Basics
+ Retrieved From: http://www.circuitbasics.com/how-to-set-up-the-dht11-humidity-sensor-on-an-arduino/?fbclid=IwAR3sau54C18ERYFBIfPizAM1hJZsXMIX0RXCPOU1xO84wG-rCehWdk2Zo_8
+ Date:       Nov  28, 2019
+ Modified:   Christopher Diaz-Reyes
+ Fanshawe College, 2019
+                
+ Desc:      This function controls the humidity sensor, when the humidity sensor detects humidity in the air abouve 40% relative humidity it flashes an indicator LED and activates a buzzer 
+*****************************************************************************************************/
+void HumiditySensorCall()
+{
+  int data = 0;
+  DHT.read11(DHT11_PIN);
+  Serial.print("Temperature = ");
+  Serial.println(DHT.temperature);
+  Serial.print("Humidity = ");
+  Serial.println(DHT.humidity);
+  data = data + DHT.humidity;
+  
+  //delay(2000);
+
+    if(data >= humidityThreshold)
+      {
+      digitalWrite(Waterled, HIGH); 
+      tone(BuzzerAlarm, 1000, 200);
+      }
+
+    else
+      {
+      digitalWrite(Waterled, LOW); 
+      noTone(BuzzerAlarm);
+      }
+    data = 0;
+  delay(2000);
+}
